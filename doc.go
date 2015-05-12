@@ -1,13 +1,13 @@
 // doc.go
 
-// Copyright 2009-2010 David Rook. All rights reserved.
+// Copyright 2009-2015 David Rook. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
-// source can be found at http://www.github.com/hotei/go-zipfile
+// source can be found at http://www.github.com/hotei/zipfile
 //
-// <David Rook> ravenstone13@cox.net  AKA Hotei on golang.org and github
+// <David Rook> hotei1352@gmail.com  AKA Hotei on golang.org and github
 // This is a work-in-progress
-//     This version does only zip reading, no zip writing yet
+//     This version does only zip reading, no zip writing
 
 /*
 This file contains additional documentation for zip library project
@@ -34,10 +34,10 @@ actual archived data. Additionally reading the actual data may be useful to vali
 the readability of older removeable media like 5.25 inch diskettes and early CDs.
 
 The initial approach was to convert python's zipfile.py into go.  Since then the
-method has changed a bit.  Rather than convert, this libarary was writen from scratch
+method has changed a bit.  Rather than convert, this library was writen from scratch
 based on PKWARE's APPNOTE.TXT.  APPNOTE.TXT describes the contents of zip files
-from the perspective of the company who designed the zip protocol.  The resulting zip.go
-library is ready for beta-testing and passes the initial test suite.
+from the perspective of the company who designed the zip protocol.  The resulting zipfile.go
+package is ready for testing and passes the initial test suite.
 
 So far all testing has been on zip files smaller than 20 megabytes.
 
@@ -53,7 +53,7 @@ At present there is a limitation of 2GB on expanded
 files if you set paranoid mode - ie if you want CRC32 checking done after
 expansion (which normally you would).
 This is a limitation currently imposed by how I use the IEEECRC32 function,
-and it will probably be lifted in the near future.
+and it might be lifted in the future.
 With paranoid mode off you should be able to read files over 2GB now.
 
 Older versions of zip only supported a max 4 of GB file sizes but later

@@ -282,3 +282,49 @@ func TestConcurrent(t *testing.T) {
 	fmt.Printf("May need multiple runs to see non-sequential results\n")
 	fmt.Printf("TestConcurrent finishing normally\n")
 }
+
+// Purpose: Exercise Open() on one file
+// copy out (to display terminal) expanded contents
+func Test005(t *testing.T) {
+	fmt.Printf("Test005 - start\n")
+	const testfile = "testdata/five-imploded-files.zip"
+	//const testfile = "testdata/five-deflated-files.zip"
+
+	Verbose = false
+	f, err := os.Open(testfile)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	defer f.Close()
+	fmt.Printf("opened zip file %s\n", testfile)
+	rz, err := NewReader(f)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	n := 1
+	for {
+		hdr, err := rz.Next()
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if hdr == nil { // no more data
+			break
+		}
+		n++
+		hdr.Dump()
+		f, err := hdr.Open()
+		if err == nil {
+			t.Errorf("Didn't generate the expected error: %v", err)
+		}
+		_, err = io.Copy(os.Stdout, f)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+	}
+
+	if false {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	fmt.Printf("Test005 - end\n")
+
+}

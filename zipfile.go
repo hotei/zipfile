@@ -30,6 +30,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hotei/mdr"
@@ -41,10 +42,6 @@ import (
 type ZipReader struct {
 	reader io.ReadSeeker
 }
-
-// name of original zip archive will be unknown if source is just an io.Reader?
-// can we use f.Name() to get original name? no.
-//	ArkName     string
 
 // Describes one entry in zip archive
 // data be compressed or stored (ie. type 8 or 0 only) - NOTE! other formats exist, "imploded" is one
@@ -73,16 +70,17 @@ const (
 	tooBig       = 1<<(bitsInInt-1) - 1
 	localHdrSize = 30
 	logFileName  = "/home/mdr/gologs/golog.txt"
+	version      = "0.1.3"
 )
 
 var (
 	cantCreatReader  = errors.New("Cant create a NewReader")
 	invalidSigError  = errors.New("Bad Local Hdr Sig (invalid magic number)")
 	invalidCompError = errors.New("Bad compression method value")
-	shortReadError   = errors.New("short read")
-	futureTimeError  = errors.New("file's last Mod time is in future")
+	shortReadError   = errors.New("Short read")
+	futureTimeError  = errors.New("File's last Mod time is in future")
 	slice16Error     = errors.New("SixteenBit() did not get a 16 bit arg")
-	slice32Error     = errors.New("thirtytwoBit() did not get a 32 bit arg")
+	slice32Error     = errors.New("ThirtytwoBit() did not get a 32 bit arg")
 	crc32MatchError  = errors.New("Stored CRC32 doesn't match computed CRC32")
 	tooBigError      = errors.New("Can't use CRC32 if file > 2GB, Try unsetting Paranoid")
 	expandingError   = errors.New("Cant expand array")
@@ -92,41 +90,13 @@ var (
 // used to control behavior of zip library code
 var (
 	Paranoid    bool
-	LogMethErrs bool
+	LogMethErrs bool = true
 )
-
-// A ZipReader provides sequential or random access to the contents of a zip archive.
-// A zip archive consists of a sequence of files.
-// The Next method advances to the next file in the archive (including the first),
-// and then it can be treated as an io.Reader to access the file's data.
-// You can also pull all the headers with  h := rz.ZipfileHeaders() and then open
-// an individual file number n with rdr := h[n].Open()  See test suite for more examples.
-//
-// Example:
-// func test_2() {
-//	const testfile = "stuf.zip"
-//
-//	input, err := os.Open(testfile, os.O_RDONLY, 0666)
-//	if err != nil {
-//		fatal_err(err)
-//	}
-//	fmt.Printf("opened zip file %s\n", testfile)
-//	rz, err := zip.NewReader(input)
-//	if err != nil {
-//		fatal_err(err)
-//	}
-//	hdr, err := rz.Next()
-//	rdr, err := hdr.Open()
-//	_, err = io.Copy(os.Stdout, rdr) // open first file only
-//	if err != nil {
-//		fatal_err(err)
-//	}
-// }
 
 func init() {
 	now := time.Now()
 	t := now.Format(time.UnixDate)
-	logErr(fmt.Sprintf("pkg zipfile: init at %s\n", t))
+	logErr(fmt.Sprintf("pkg zipfile: version %s init at %s\n", version, t))
 }
 
 func logErr(s string) {
@@ -152,6 +122,7 @@ func logErr(s string) {
 		log.Panicf(fmt.Sprintf("cant seek end of log file:%s\n", err))
 	}
 	Verbose.Printf("seek returned starting point of %d\n", n)
+	s = strings.TrimRight(s,"\r\n\t ") + "\n"
 	_, err = f.WriteString(s)
 	if err != nil {
 		log.Panicf(fmt.Sprintf("cant extend log file:%s\n", err))
@@ -179,25 +150,16 @@ func (h *ZipfileHeader) unpackLocalHeader(src []byte) error {
 		return invalidSigError // has invalid sig and its not last file in archive
 	}
 	h.Compress = mdr.SixteenBit(src[8:10])
-
 	switch h.Compress {
 	case zipStored: // nothing
 	case zipDeflated: // nothing
 	case zipImploded:
-		fmt.Printf("Sorry, I can't handle the zip implode compression method\n")
-		if LogMethErrs {
-			logErr(fmt.Sprintf("Err-> file %q uses implode method (not handled)\n", h.FileName))
-		}
-		return invalidCompError
 	default:
-		fmt.Printf("Sorry, I can't handle zip compression method %d\n", h.Compress)
-		return invalidCompError
+		fmt.Printf("Wrn-> unknown zip compression method %d\n", h.Compress)
+		if LogMethErrs {
+			logErr(fmt.Sprintf("Wrn-> unknown zip compression method %d\n", h.Compress))
+		}
 	}
-
-	//	if h.Compress != zipStored && h.Compress != zipDeflated {
-	//		fmt.Printf("I can't handle zip compression method %d\n", h.Compress)
-	//		return invalidCompError
-	//	}
 	h.Size = int64(mdr.ThirtyTwoBit(src[22:26]))
 	h.SizeCompr = int64(mdr.ThirtyTwoBit(src[18:22]))
 	h.StoredCrc32 = mdr.ThirtyTwoBit(src[14:18])
@@ -384,7 +346,96 @@ func (hdr *ZipfileHeader) Dump() {
 		hdr.StoredCrc32, hdr.FileName)
 }
 
+// Open is a dispatcher for the various compression methods
 func (h *ZipfileHeader) Open() (io.Reader, error) {
+	if h.Size <= 0 {
+		var buf []byte = []byte{}
+		r := bytes.NewReader(buf)
+		return r, nil
+	}
+	var rv io.Reader
+	var err error
+	switch h.Compress {
+	case zipStored: // type 0
+		rv, err = h.ReadStored()
+	case zipDeflated: // type 8
+		rv, err = h.ReadDeflated()
+	case zipImploded: // type 6
+		rv, err = h.ReadImploded()
+	default:
+		rv, err = nil, invalidCompError
+	}
+	return rv, err
+}
+
+func (h *ZipfileHeader) ReadStored() (io.Reader, error) {
+	//reset the reader in case it has been advanced elsewhere
+	_, err := h.Hreader.Seek(h.Offset, 0)
+	if err != nil {
+		if Paranoid {
+			fatal_err(err)
+		} else {
+			return nil, err
+		}
+	}
+	// copy stored data into a bufffer prior to CRC32
+	b := new(bytes.Buffer)
+	var n2 int64
+	n2, err = io.Copy(b, h.Hreader)
+	if err != nil {
+		if Paranoid {
+			fatal_err(err)
+		} else {
+			return nil, err
+		}
+	}
+	if n2 < h.Size {
+		fmt.Printf("Actually copied %d, expected to copy %d\n", n2, h.Size)
+		if Paranoid {
+			fatal_err(shortReadError)
+		} else {
+			return nil, shortReadError
+		}
+	}
+	buf := b.Bytes()
+	fmt.Printf("%s\n", buf[0:30])
+	// now we want to crc32 the buffer and check computed vs stored crc32
+	mycrc32 := crc32.ChecksumIEEE(buf)
+	if Verbose {
+		fmt.Printf("Computed Checksum = %0x, stored checksum = %0x\n", mycrc32, h.StoredCrc32)
+	}
+	if mycrc32 != h.StoredCrc32 {
+		if Paranoid {
+			fatal_err(crc32MatchError)
+		} else {
+			return nil, crc32MatchError
+		}
+	}
+
+	_, err = h.Hreader.Seek(h.Offset, 0)
+	if err != nil {
+		if Paranoid {
+			fatal_err(err)
+		} else {
+			return nil, err
+		}
+	}
+	return h.Hreader, nil
+}
+
+// BUG(mdr): ReadImploded is a stub till we get it sorted properly
+func (h *ZipfileHeader) ReadImploded() (io.Reader, error) {
+		fmt.Printf("Wrn-> implode method is not implemented: file %s\n",h.FileName)
+		if LogMethErrs {
+			logErr(fmt.Sprintf("Wrn-> implode method is not implemented: file %s",h.FileName))
+		}
+	
+	var buf []byte = []byte{}
+	r := bytes.NewReader(buf)
+	return r, nil
+}
+
+func (h *ZipfileHeader) ReadDeflated() (io.Reader, error) {
 	_, err := h.Hreader.Seek(h.Offset, 0)
 	if err != nil {
 		if Paranoid {
@@ -426,7 +477,7 @@ func (h *ZipfileHeader) Open() (io.Reader, error) {
 		}
 	}
 
-	// BUG(mdr) near line 433 TODO do we need to handle bigger files gracefully or is 1 GB enough per zipfile?
+	// BUG(mdr) near line 393 TODO do we need to handle bigger files gracefully or is 1 GB enough per zipfile?
 
 	if h.Size > tooBig {
 		if Paranoid {
@@ -529,6 +580,7 @@ func makeGoDate(d, t uint16) time.Time {
 		fmt.Printf("year(%d) month(%d) day(%d) \n", year, month, day)
 		fmt.Printf("hour(%d) minute(%d) second(%d)\n", hour, minute, second)
 	}
+	// BUG(mdr): pull date check out and put in mdr package.
 	// TODO this checking is approximate for now, daysinmonth not checked fully
 	// TODO we wont know file name at this point unless Verbose is also true
 	//  ? is that a problem or not ?
