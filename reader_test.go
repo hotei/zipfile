@@ -1,14 +1,12 @@
-// reader_test.go
+// reader_test.go  Copyright 2009-2015 David Rook. All rights reserved.
 
-// Copyright 2009-2010 David Rook. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
-// source can be found at http://www.github.com/hotei/go-zipfile
+// source can be found at http://www.github.com/hotei/zipfile
 //
-// <David Rook> ravenstone13@cox.net
+// <David Rook> hotei1352@gmail.com
 // This is a work-in-progress
 //     This version does only reading, no zip writing
-//     Verbose mode will eventually go away
 
 package zipfile
 
@@ -22,11 +20,12 @@ import (
 )
 
 // Purpose: exercise NewReader(),Next(), Dump() on a valid zip file
-// Run thru all files in archive, printing header info using Verbose mode
-//
+// Run thru all files in archive, printing header
+// This is the simplest way to read an archive, but not the only
 func Test001(t *testing.T) {
 	fmt.Printf("Test001 start\n")
-	const testfile = "testdata/stuf.zip"
+	Verbose = false
+	const testfile = "testdata/phpBB.zip"
 	f, err := os.Open(testfile)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -52,9 +51,10 @@ func Test001(t *testing.T) {
 	fmt.Printf("Test001 fini\n")
 }
 
-// Purpose: exercise Headers()
-// Run thru all files in archive, printing header info
-//
+// Purpose: exercise ZipfileHeaders()
+// Read all the headers at once, then
+// dump info for each header.  Should give
+// roughly same output as Test001//
 func Test002(t *testing.T) {
 	fmt.Printf("Test002 start\n")
 	const testfile = "testdata/phpBB.zip"
@@ -69,12 +69,12 @@ func Test002(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	filelist, err2 := rz.Headers()
+	fileHdrList, err2 := rz.ZipfileHeaders()
 	if err2 != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	fmt.Printf("len filelist = %d\n", len(filelist))
-	for _, hdr := range filelist {
+	fmt.Printf("len filelist = %d\n", len(fileHdrList))
+	for _, hdr := range fileHdrList {
 		//		fmt.Printf("hdr = %v\n",hdr)
 		//  fmt.Printf("\nlisting from hdr %d\n", ndx)
 		hdr.Dump()
@@ -84,7 +84,8 @@ func Test002(t *testing.T) {
 }
 
 // Purpose: Exercise Open() on one file
-func TestX003(t *testing.T) {
+// copy out (to display terminal) expanded contents
+func Test003(t *testing.T) {
 	fmt.Printf("Test003 start\n")
 	const testfile = "testdata/stuf.zip"
 
@@ -103,6 +104,9 @@ func TestX003(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 	rdr, err := hdr.Open()
+	if err != nil {
+		t.Fatalf("Can't open header error: %v", err)
+	}
 	_, err = io.Copy(os.Stdout, rdr) // open first file only
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -112,6 +116,7 @@ func TestX003(t *testing.T) {
 
 // Purpose: Exercise Open() on multiple, non-sequential files from Header list
 // open and print only the php files from the archive
+// here we copy files to bit bucket, just to test readability
 func TestSeqRead(t *testing.T) {
 	fmt.Printf("TestSeqRead start\n")
 
@@ -127,21 +132,21 @@ func TestSeqRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	filelist, err2 := rz.Headers()
+	filelist, err2 := rz.ZipfileHeaders()
 	if err2 != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 	fmt.Printf("len filelist = %d\n", len(filelist))
 
-	o, err := os.OpenFile("/dev/null", os.O_WRONLY, 0666)
+	bitBucket, err := os.OpenFile("/dev/null", os.O_WRONLY, 0666)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer o.Close()
+	defer bitBucket.Close()
 	hnum := 1
 	Paranoid = true
 	for ndx, hdr := range filelist {
-		if strings.HasSuffix(hdr.Name, ".php") {
+		if strings.HasSuffix(hdr.FileName, ".php") {
 			if Verbose {
 				fmt.Printf("%4d: ", ndx)
 				hdr.Dump()
@@ -156,7 +161,7 @@ func TestSeqRead(t *testing.T) {
 			}
 			//			_, err = io.Copy(os.Stdout, rdr)
 			var n int64
-			n, err = io.Copy(o, rdr)
+			n, err = io.Copy(bitBucket, rdr)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -179,17 +184,15 @@ func TestSeqRead(t *testing.T) {
 // channel l signals completion in either case
 // failure results in c getting a message sent where n < 0, success n > 0
 func processBlob(hdrNum int, blob io.Reader, size int64, c chan int) {
-	o, err := os.OpenFile("/dev/null", os.O_WRONLY, 0666)
+	bitBucket, err := os.OpenFile("/dev/null", os.O_WRONLY, 0666)
 	if err != nil {
 		c <- -hdrNum
 		return
 	}
-	defer o.Close()
+	defer bitBucket.Close()
 	var n int64
-	n, err = io.Copy(o, blob)
-	if Verbose {
-		fmt.Printf("processed header number %d\n", hdrNum)
-	}
+	n, err = io.Copy(bitBucket, blob)
+	Verbose.Printf("processed header number %d\n", hdrNum)
 	if err != nil {
 		c <- -hdrNum
 		return
@@ -234,19 +237,17 @@ func TestConcurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	filelist, err2 := rz.Headers()
+	filelist, err2 := rz.ZipfileHeaders()
 	if err2 != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 	fmt.Printf("len filelist = %d\n", len(filelist))
 	Paranoid = true // make sure we always do the CRC32IEEE() check
-	Verbose = false
 	hnum := 0
 	// spread out the work among up to MAX_GORU CPUs
 	workout := 0
 	for ndx, hdr := range filelist {
-		if strings.HasSuffix(hdr.Name, ".php") {
-			//			if Verbose {
+		if strings.HasSuffix(hdr.FileName, ".php") {
 			fmt.Printf("%4d: ", ndx)
 			hdr.Dump()
 			//			}
@@ -259,6 +260,7 @@ func TestConcurrent(t *testing.T) {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 			l <- 1
+			// NOTE: idiomatic way would be to use sync.WaitGroup
 			// this should block if MAXPROCS goroutines are active already
 			// motivation for this is to reduce possibly large memory footprint if
 			// multiple large blobs decompress at the same time, a few is ok, thousands... not so good
@@ -277,13 +279,6 @@ func TestConcurrent(t *testing.T) {
 		workout--
 	}
 	fmt.Printf("Non-sequential rc results is sign of success\n")
+	fmt.Printf("May need multiple runs to see non-sequential results\n")
 	fmt.Printf("TestConcurrent finishing normally\n")
 }
-
-/* // Test template
-func TestXXX (t *testing.T) {
-    if false {
-        t.Fatalf("Unexpected error: %v", err)
-    }
-}
-*/
