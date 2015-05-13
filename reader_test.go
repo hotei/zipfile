@@ -13,6 +13,7 @@ package zipfile
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -87,7 +88,7 @@ func Test002(t *testing.T) {
 // copy out (to display terminal) expanded contents
 func Test003(t *testing.T) {
 	fmt.Printf("Test003 start\n")
-	const testfile = "testdata/stuf.zip"
+	const testfile = "testdata/one-deflated-file.zip"
 
 	f, err := os.Open(testfile)
 	if err != nil {
@@ -178,7 +179,8 @@ func TestSeqRead(t *testing.T) {
 
 // normally a real process would do something interesting with the blob contents
 // here we just make sure it's readable and contains the right number of bytes
-// by doing an io.Copy() out to the null device
+// by doing an io.Copy() to the null device
+//
 // Open() has already validated the CRC32 so no need to do so again
 // we use channel c to indicate success or failure back to the main test func
 // channel l signals completion in either case
@@ -285,27 +287,28 @@ func TestConcurrent(t *testing.T) {
 
 // Purpose: Exercise Open() on one file
 // copy out (to display terminal) expanded contents
+// can send to temp files if desired - see "if false" below
 func Test005(t *testing.T) {
 	fmt.Printf("Test005 - start\n")
 	const testfile = "testdata/five-imploded-files.zip"
 	//const testfile = "testdata/five-deflated-files.zip"
-
+	Paranoid = false
 	Verbose = false
 	f, err := os.Open(testfile)
 	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
+		t.Fatalf("error: %v", err)
 	}
 	defer f.Close()
 	fmt.Printf("opened zip file %s\n", testfile)
 	rz, err := NewReader(f)
 	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
+		t.Fatalf("error: %v", err)
 	}
 	n := 1
 	for {
 		hdr, err := rz.Next()
 		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+			t.Fatalf("error: %v", err)
 		}
 		if hdr == nil { // no more data
 			break
@@ -313,12 +316,24 @@ func Test005(t *testing.T) {
 		n++
 		hdr.Dump()
 		f, err := hdr.Open()
-		if err == nil {
-			t.Errorf("Didn't generate the expected error: %v", err)
-		}
-		_, err = io.Copy(os.Stdout, f)
 		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+			t.Fatalf("error: %v", err)
+		}
+		if false {
+			fp, err := ioutil.TempFile(".", "x2test")
+			if err != nil {
+				t.Fatalf("error: %v", err)
+			}
+			defer fp.Close()
+			_, err = io.Copy(fp, f)
+			if err != nil {
+				t.Fatalf("error: %v", err)
+			}
+		} else {
+			_, err = io.Copy(os.Stdout, f)
+			if err != nil {
+				t.Fatalf("error: %v", err)
+			}
 		}
 	}
 
