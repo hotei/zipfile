@@ -80,14 +80,15 @@ demonstrates problem. (OBE?)
 
 ### To-Do
 
-* Essential:
-  * TBD
-* Nice:
-  * TBD
+* Essential: - tbd
 * Nice but no immediate need:
+  * allow "imploded" files to be "exploded"
+  * allow "reduced" files to be "unreduced"
+  * allow "shrunk" files to be "unshrunk"
   * Allow program to accept archives > 4 GB as long as individual members are
 less than the Max
   * Make sure format of Dump() output matches MSDOS flavor.
+  * Allow use with encrypted zipfiles
   
 ### Change Log
 

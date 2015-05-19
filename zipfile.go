@@ -307,7 +307,7 @@ func (r *ZipReader) Next() (*ZipfileHeader, error) {
 		}
 	}
 	if hdr.Compress == zipImploded {
-		logErr(fmt.Sprintf("Wrn-> explode not implemented for %s\n",hdr.FileName))
+		logErr(fmt.Sprintf("Wrn-> explode not implemented for %s\n", hdr.FileName))
 	}
 	// NOTE: side effect is to move r.reader pointer to start of next header
 	return hdr, nil
@@ -479,7 +479,7 @@ func (h *ZipfileHeader) ReadDeflated() (io.Reader, error) {
 	// BUG(mdr) near line 393 TODO do we need to handle bigger files gracefully or is 1 GB enough per zipfile?
 	if h.Size > tooBig {
 		if Paranoid {
-			logErr(fmt.Sprintf("source uncompressed size is larger than %d bytes\n",tooBig))
+			logErr(fmt.Sprintf("source uncompressed size is larger than %d bytes\n", tooBig))
 			fatalError(tooBigError)
 		} else {
 			return nil, tooBigError
